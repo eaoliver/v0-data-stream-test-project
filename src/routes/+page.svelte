@@ -45,7 +45,7 @@
     processFile(file);
   }
 
-  function processFile(file: File) {
+  async function processFile(file: File) {
     fileName = file.name;
     errorMessage = "";
     average = null;
@@ -54,89 +54,142 @@
     characteristicNameIndex = null;
     isProcessing = true;
 
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        processCSV(text);
-      } catch (error) {
-        errorMessage = `Error reading file: ${error}`;
-      } finally {
-        isProcessing = false;
-      }
-    };
-
-    reader.onerror = () => {
-      errorMessage = "Failed to read file";
+    try {
+      await processCSVLineByLine(file);
+    } catch (error) {
+      errorMessage = `Error processing file: ${error}`;
+    } finally {
       isProcessing = false;
-    };
-
-    reader.readAsText(file);
+    }
   }
 
-  function processCSV(text: string) {
-    const lines = text.split("\n").filter((line) => line.trim());
-
-    if (lines.length < 2) {
-      errorMessage = "CSV file appears to be empty or invalid";
-      return;
-    }
-
-    const headers = parseCSVLine(lines[0]);
-
-    const foundResultValueIndex = headers.findIndex((h) => h === "ResultValue");
-    const foundCharacteristicNameIndex = headers.findIndex(
-      (h) => h === "CharacteristicName",
-    );
-
-    if (foundResultValueIndex === -1) {
-      errorMessage =
-        'Column validation failed: Could not find "ResultValue" column in header';
-      return;
-    }
-
-    if (foundCharacteristicNameIndex === -1) {
-      errorMessage =
-        'Column validation failed: Could not find "CharacteristicName" column in header';
-      return;
-    }
-
-    resultValueIndex = foundResultValueIndex;
-    characteristicNameIndex = foundCharacteristicNameIndex;
-
+  async function processCSVLineByLine(file: File) {
+    const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+    let offset = 0;
+    let remainder = "";
+    let lineNumber = 0;
     let sum = 0;
     let count = 0;
+    let foundResultValueIndex = -1;
+    let foundCharacteristicNameIndex = -1;
 
-    for (let i = 1; i < lines.length; i++) {
-      const row = parseCSVLine(lines[i]);
+    while (offset < file.size) {
+      const chunk = file.slice(offset, offset + CHUNK_SIZE);
+      const text = await chunk.text();
+      const lines = (remainder + text).split("\n");
+
+      // Keep the last incomplete line for the next chunk
+      remainder = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        if (lineNumber === 0) {
+          // Process header
+          const headers = parseCSVLine(line);
+          foundResultValueIndex = headers.findIndex((h) => h === "ResultValue");
+          foundCharacteristicNameIndex = headers.findIndex(
+            (h) => h === "CharacteristicName",
+          );
+
+          if (foundResultValueIndex === -1) {
+            throw new Error(
+              'Column validation failed: Could not find "ResultValue" column in header',
+            );
+          }
+
+          if (foundCharacteristicNameIndex === -1) {
+            throw new Error(
+              'Column validation failed: Could not find "CharacteristicName" column in header',
+            );
+          }
+
+          resultValueIndex = foundResultValueIndex;
+          characteristicNameIndex = foundCharacteristicNameIndex;
+
+          console.log(
+            "[v0] Found columns - ResultValue:",
+            foundResultValueIndex,
+            "CharacteristicName:",
+            foundCharacteristicNameIndex,
+          );
+        } else {
+          // Process data row
+          const row = parseCSVLine(line);
+
+          if (
+            row.length <=
+            Math.max(foundResultValueIndex, foundCharacteristicNameIndex)
+          )
+            continue;
+
+          const characteristicName = row[foundCharacteristicNameIndex];
+          const resultValueStr = row[foundResultValueIndex];
+
+          if (characteristicName === "Temperature, water") {
+            const resultValue = parseFloat(resultValueStr);
+
+            if (!isNaN(resultValue)) {
+              sum += resultValue;
+              count++;
+              console.log(
+                "[v0] Line",
+                lineNumber,
+                "- Temperature:",
+                resultValue,
+                "| Running count:",
+                count,
+              );
+            }
+          }
+        }
+
+        lineNumber++;
+      }
+
+      offset += CHUNK_SIZE;
+    }
+
+    // Process any remaining line
+    if (remainder.trim()) {
+      const row = parseCSVLine(remainder);
 
       if (
-        row.length <=
+        row.length >
         Math.max(foundResultValueIndex, foundCharacteristicNameIndex)
-      )
-        continue;
+      ) {
+        const characteristicName = row[foundCharacteristicNameIndex];
+        const resultValueStr = row[foundResultValueIndex];
 
-      const characteristicName = row[foundCharacteristicNameIndex];
-      const resultValueStr = row[foundResultValueIndex];
+        if (characteristicName === "Temperature, water") {
+          const resultValue = parseFloat(resultValueStr);
 
-      if (characteristicName === "Temperature, water") {
-        const resultValue = parseFloat(resultValueStr);
-
-        if (!isNaN(resultValue)) {
-          sum += resultValue;
-          count++;
+          if (!isNaN(resultValue)) {
+            sum += resultValue;
+            count++;
+            console.log(
+              "[v0] Final line - Temperature:",
+              resultValue,
+              "| Final count:",
+              count,
+            );
+          }
         }
       }
     }
 
     if (count === 0) {
-      errorMessage = 'No valid "Temperature, water" records found in the CSV';
-      return;
+      throw new Error('No valid "Temperature, water" records found in the CSV');
     }
 
     average = sum / count;
     recordCount = count;
+    console.log(
+      "[v0] Processing complete - Average:",
+      average,
+      "| Total records:",
+      count,
+    );
   }
 
   function parseCSVLine(line: string): string[] {
@@ -175,7 +228,7 @@
 </script>
 
 <div
-  class="min-h-screen bg-linear-to-br from-slate-950 via-blue-950 to-slate-900"
+  class="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900"
 >
   <div class="container mx-auto px-4 py-12 max-w-4xl">
     <!-- Header -->
