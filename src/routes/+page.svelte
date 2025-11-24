@@ -9,6 +9,7 @@
   let isProcessing = $state(false);
   let resultValueIndex = $state<number | null>(null);
   let characteristicNameIndex = $state<number | null>(null);
+  let isDragging = $state(false);
 
   function handleFileSelect(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -16,6 +17,35 @@
 
     if (!file) return;
 
+    processFile(file);
+  }
+
+  function handleDragOver(event: DragEvent) {
+    event.preventDefault();
+    isDragging = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    event.preventDefault();
+    isDragging = false;
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    isDragging = false;
+
+    const file = event.dataTransfer?.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".csv")) {
+      errorMessage = "Please upload a CSV file";
+      return;
+    }
+
+    processFile(file);
+  }
+
+  function processFile(file: File) {
     fileName = file.name;
     errorMessage = "";
     average = null;
@@ -169,7 +199,12 @@
       <div class="p-8 border-b border-blue-800/30">
         <label
           for="csv-upload"
-          class="flex flex-col items-center justify-center p-12 border-2 border-dashed border-blue-600/50 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-950/30 transition-all"
+          ondragover={handleDragOver}
+          ondragleave={handleDragLeave}
+          ondrop={handleDrop}
+          class="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-xl cursor-pointer transition-all {isDragging
+            ? 'border-blue-400 bg-blue-900/40'
+            : 'border-blue-600/50 hover:border-blue-500 hover:bg-blue-950/30'}"
         >
           <Upload class="w-16 h-16 text-blue-400 mb-4" />
           <span class="text-blue-200 text-lg font-medium mb-2">
